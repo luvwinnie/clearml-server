@@ -1,0 +1,28 @@
+# Dockerfile for ClearML Server with OIDC support
+# Build: docker build -t luvwinnie/clearml-server:oidc -f Dockerfile.oidc .
+#
+# This Dockerfile adds OIDC authentication support to the existing ClearML server.
+# Only the OIDC-specific files are copied to avoid overwriting the base image's code.
+
+FROM allegroai/clearml:latest
+
+# Install additional dependencies for OIDC
+RUN pip install --no-cache-dir pyjwt[crypto]>=2.4.0 httpx>=0.24.0
+
+# Copy ONLY the OIDC-specific files (not the entire apiserver to avoid Python version conflicts)
+# 1. OIDC BLL module (new file)
+COPY apiserver/bll/auth/oidc.py /opt/clearml/apiserver/bll/auth/oidc.py
+
+# 2. OIDC service endpoints (new file)
+COPY apiserver/services/oidc.py /opt/clearml/apiserver/services/oidc.py
+
+# 3. OIDC schema (new file)
+COPY apiserver/schema/services/oidc.conf /opt/clearml/apiserver/schema/services/oidc.conf
+
+# 4. Updated auth.conf with OIDC settings
+COPY apiserver/config/default/services/auth.conf /opt/clearml/apiserver/config/default/services/auth.conf
+
+# 5. Updated login service (modified to return SSO providers)
+COPY apiserver/services/login/__init__.py /opt/clearml/apiserver/services/login/__init__.py
+
+# The base image already has the entrypoint configured
