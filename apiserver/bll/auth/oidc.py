@@ -69,6 +69,7 @@ class OIDCUserInfo:
     name: Optional[str]
     given_name: Optional[str]
     family_name: Optional[str]
+    groups: List[str] = None  # Groups from OIDC claims (e.g., from Authentik)
 
 
 def get_oidc_config() -> Dict[str, Any]:
@@ -357,6 +358,11 @@ def extract_user_info(
     given_name = claims.get("given_name")
     family_name = claims.get("family_name")
 
+    # Extract groups from claims (Authentik sends groups in "groups" claim)
+    groups = claims.get("groups", [])
+    if isinstance(groups, str):
+        groups = [groups]
+
     # Fallback: use email as username if preferred_username is not available
     if not username and email:
         username = email.split("@")[0]
@@ -372,7 +378,42 @@ def extract_user_info(
         name=name,
         given_name=given_name,
         family_name=family_name,
+        groups=groups or [],
     )
+
+
+def _get_role_from_groups(groups: List[str], default_role: str) -> str:
+    """
+    Map OIDC groups to ClearML roles.
+
+    Group mapping (case-insensitive):
+    - "clearml-admins" or "admins" -> admin
+    - "clearml-superusers" or "superusers" -> superuser
+    - "clearml-users" or "users" -> user (default)
+    - "clearml-annotators" or "annotators" -> annotator
+    - "clearml-guests" or "guests" -> guest
+
+    The first matching group wins (admin > superuser > user > annotator > guest).
+    """
+    if not groups:
+        return default_role
+
+    # Normalize group names to lowercase for comparison
+    lower_groups = [g.lower() for g in groups]
+
+    # Check in priority order (highest privilege first)
+    if any(g in ("clearml-admins", "admins", "admin") for g in lower_groups):
+        return "admin"
+    if any(g in ("clearml-superusers", "superusers", "superuser") for g in lower_groups):
+        return "superuser"
+    if any(g in ("clearml-users", "users") for g in lower_groups):
+        return "user"
+    if any(g in ("clearml-annotators", "annotators", "annotator") for g in lower_groups):
+        return "annotator"
+    if any(g in ("clearml-guests", "guests", "guest") for g in lower_groups):
+        return "guest"
+
+    return default_role
 
 
 def get_or_create_user(
@@ -383,10 +424,18 @@ def get_or_create_user(
     Get an existing user or create a new one based on OIDC user info.
     Users are matched by email first, then by a generated OIDC user ID.
     Creates entries in both auth.user (for authentication) and backend.user (for user data).
+
+    Role assignment:
+    - If user belongs to specific groups (e.g., "clearml-admins"), they get that role
+    - Otherwise, they get the default_role from config
     """
     oidc_config = get_oidc_config()
     default_company = oidc_config.get("default_company", "")
     default_role = oidc_config.get("default_role", "user")
+
+    # Determine role from groups (with fallback to default_role)
+    user_role = _get_role_from_groups(user_info.groups, default_role)
+    log.info(f"OIDC user {user_info.username} groups: {user_info.groups} -> role: {user_role}")
 
     # Generate a unique user ID based on provider and subject
     oidc_user_id = f"oidc_{provider.name}_{hashlib.sha256(user_info.subject.encode()).hexdigest()[:16]}"
@@ -409,6 +458,20 @@ def get_or_create_user(
                 updated = True
             if user_info.email and auth_user.email != user_info.email:
                 auth_user.email = user_info.email
+                updated = True
+
+            # Update role based on current groups (roles can change when groups change)
+            role_map = {
+                "user": Role.user,
+                "admin": Role.admin,
+                "superuser": Role.superuser,
+                "guest": Role.guest,
+                "annotator": Role.annotator,
+            }
+            new_role = role_map.get(user_role, Role.user)
+            if auth_user.role != new_role:
+                log.info(f"Updating user {auth_user.id} role from {auth_user.role} to {new_role}")
+                auth_user.role = new_role
                 updated = True
 
             if updated:
@@ -436,14 +499,15 @@ def get_or_create_user(
                 f"Invalid default company for OIDC: {default_company}"
             )
 
-        # Map role string to Role enum
+        # Map role string to Role enum (use role from groups, not default_role)
         role_map = {
             "user": Role.user,
             "admin": Role.admin,
+            "superuser": Role.superuser,
             "guest": Role.guest,
             "annotator": Role.annotator,
         }
-        role = role_map.get(default_role, Role.user)
+        role = role_map.get(user_role, Role.user)
 
         # Create new auth user
         # Note: autocreated=False ensures OIDC users persist across server restarts

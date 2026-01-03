@@ -14,9 +14,11 @@ from typing import (
 
 from boltons import iterutils
 
-from apiserver.apierrors import APIError
+from apiserver.apierrors import APIError, errors
+from apiserver.database.model.auth import Role
 from apiserver.database.model.project import Project
 from apiserver.database.model.settings import Settings
+from apiserver.service_repo.auth import Identity
 
 
 @functools.lru_cache()
@@ -90,3 +92,35 @@ def update_project_time(project_ids: Union[str, Sequence[str]]):
         project_ids = [project_ids]
 
     return Project.objects(id__in=project_ids).update(last_update=datetime.utcnow())
+
+
+# Roles allowed to delete any resource (admins)
+ADMIN_DELETE_ROLES = {Role.system, Role.root, Role.admin, Role.superuser}
+
+
+def validate_delete_permission(
+    identity: Identity,
+    resource_user_id: Optional[str] = None,
+    resource_type: str = "resource",
+) -> None:
+    """
+    Validates that the user has permission to delete a resource.
+
+    Owner + Admin policy:
+    - Admins (system, root, admin, superuser) can delete any resource
+    - Regular users can only delete resources they own
+
+    :param identity: The identity of the user making the request
+    :param resource_user_id: The user ID of the resource owner (if available)
+    :param resource_type: The type of resource being deleted (for error messages)
+    :raises errors.forbidden.NoWritePermission: if the user doesn't have permission
+    """
+    # Admin roles can always delete
+    if identity.role in ADMIN_DELETE_ROLES:
+        return
+
+    # Non-admin users can only delete their own resources
+    if resource_user_id is None or identity.user != resource_user_id:
+        raise errors.forbidden.NoWritePermission(
+            f"only {resource_type} owner or admin can delete this {resource_type}"
+        )

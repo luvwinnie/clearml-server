@@ -361,7 +361,7 @@ def validate_delete(call: APICall, company_id: str, request: ProjectRequest):
 def delete(call: APICall, company_id: str, request: DeleteRequest):
     res, affected_projects = delete_project(
         company=company_id,
-        user=call.identity.user,
+        identity=call.identity,
         project_id=request.project,
         force=request.force,
         delete_contents=request.delete_contents,

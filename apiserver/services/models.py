@@ -619,7 +619,7 @@ def delete(call: APICall, company_id, request: DeleteModelRequest):
     del_count, model = ModelBLL.delete_model(
         model_id=request.model,
         company_id=company_id,
-        user_id=user_id,
+        identity=call.identity,
         force=request.force,
     )
     if del_count:
@@ -649,7 +649,7 @@ def delete_many(call: APICall, company_id, request: ModelsDeleteManyRequest):
         func=partial(
             ModelBLL.delete_model,
             company_id=company_id,
-            user_id=call.identity.user,
+            identity=call.identity,
             force=request.force,
         ),
         ids=request.ids,

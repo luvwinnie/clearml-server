@@ -10,10 +10,12 @@ from apiserver.database.model.task.task import Task, TaskStatus
 from apiserver.es_factory import es_factory
 from apiserver.apierrors import errors
 from apiserver.bll.queue.queue_metrics import QueueMetrics
+from apiserver.bll.util import validate_delete_permission
 from apiserver.bll.workers import WorkerBLL
 from apiserver.config_repo import config
 from apiserver.database.errors import translate_errors_context
 from apiserver.database.model.queue import Queue, Entry
+from apiserver.service_repo.auth import Identity
 
 log = config.logger(__file__)
 MOVE_FIRST = "first"
@@ -183,12 +185,18 @@ class QueueBLL(object):
 
         return tasks
 
-    def delete(self, company_id: str, user_id: str, queue_id: str, force: bool) -> Sequence[str]:
+    def delete(self, company_id: str, identity: Identity, queue_id: str, force: bool) -> Sequence[str]:
         """
         Delete the queue
         :raise errors.bad_request.InvalidQueueId: if the queue is not found
         :raise errors.bad_request.QueueNotEmpty: if the queue is not empty and 'force' not set
+        :raise errors.forbidden.NoWritePermission: if user doesn't have permission to delete
         """
+        user_id = identity.user
+
+        # Queues don't have owners, so only admins can delete them
+        validate_delete_permission(identity, resource_user_id=None, resource_type="queue")
+
         queue = self.get_by_id(company_id=company_id, queue_id=queue_id)
         if not queue.entries:
             queue.delete()

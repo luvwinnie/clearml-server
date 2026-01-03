@@ -1,15 +1,21 @@
-# Dockerfile for ClearML Server with OIDC support
+# Dockerfile for ClearML Server with OIDC support and deletion restrictions
 # Build: docker build -t luvwinnie/clearml-server:oidc -f Dockerfile.oidc .
 #
-# This Dockerfile adds OIDC authentication support to the existing ClearML server.
-# Only the OIDC-specific files are copied to avoid overwriting the base image's code.
+# This Dockerfile adds:
+# - OIDC authentication support
+# - Role-based deletion restrictions (Owner + Admin policy)
+#
+# Only specific files are copied to avoid overwriting the base image's code.
 
 FROM allegroai/clearml:latest
 
 # Install additional dependencies for OIDC
 RUN pip install --no-cache-dir pyjwt[crypto]>=2.4.0 httpx>=0.24.0
 
-# Copy ONLY the OIDC-specific files (not the entire apiserver to avoid Python version conflicts)
+# =============================================================================
+# OIDC Support Files
+# =============================================================================
+
 # 1. OIDC BLL module (new file)
 COPY apiserver/bll/auth/oidc.py /opt/clearml/apiserver/bll/auth/oidc.py
 
@@ -24,5 +30,32 @@ COPY apiserver/config/default/services/auth.conf /opt/clearml/apiserver/config/d
 
 # 5. Updated login service (modified to return SSO providers)
 COPY apiserver/services/login/__init__.py /opt/clearml/apiserver/services/login/__init__.py
+
+# =============================================================================
+# Deletion Restriction Files (Owner + Admin policy)
+# =============================================================================
+# Only owner or admin can delete resources. Regular users cannot delete
+# other users' tasks, models, projects, etc.
+
+# 6. Shared utility with validate_delete_permission function
+COPY apiserver/bll/util.py /opt/clearml/apiserver/bll/util.py
+
+# 7. Task deletion with permission check
+COPY apiserver/bll/task/task_operations.py /opt/clearml/apiserver/bll/task/task_operations.py
+
+# 8. Model deletion with permission check
+COPY apiserver/bll/model/__init__.py /opt/clearml/apiserver/bll/model/__init__.py
+COPY apiserver/services/models.py /opt/clearml/apiserver/services/models.py
+
+# 9. Project deletion with permission check
+COPY apiserver/bll/project/project_cleanup.py /opt/clearml/apiserver/bll/project/project_cleanup.py
+COPY apiserver/services/projects.py /opt/clearml/apiserver/services/projects.py
+
+# 10. Queue deletion with permission check (admin only - queues have no owner)
+COPY apiserver/bll/queue/queue_bll.py /opt/clearml/apiserver/bll/queue/queue_bll.py
+COPY apiserver/services/queues.py /opt/clearml/apiserver/services/queues.py
+
+# 11. Reports deletion with permission check
+COPY apiserver/services/reports.py /opt/clearml/apiserver/services/reports.py
 
 # The base image already has the entrypoint configured

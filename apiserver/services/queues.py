@@ -150,7 +150,7 @@ def update(call: APICall, company_id, request: UpdateRequest):
 def delete(call: APICall, company_id, request: DeleteRequest):
     queue_bll.delete(
         company_id=company_id,
-        user_id=call.identity.user,
+        identity=call.identity,
         queue_id=request.queue,
         force=request.force,
     )

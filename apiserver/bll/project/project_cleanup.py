@@ -12,11 +12,13 @@ from apiserver.bll.task.task_cleanup import (
     schedule_for_delete,
     delete_task_events_and_collect_urls,
 )
+from apiserver.bll.util import validate_delete_permission
 from apiserver.config_repo import config
 from apiserver.database.model import EntityVisibility
 from apiserver.database.model.model import Model
 from apiserver.database.model.project import Project
 from apiserver.database.model.task.task import Task, ArtifactModes, TaskType, TaskStatus
+from apiserver.service_repo.auth import Identity
 from .project_bll import (
     ProjectBLL,
     pipeline_tag,
@@ -123,17 +125,21 @@ def validate_project_delete(company: str, project_id: str):
 
 def delete_project(
     company: str,
-    user: str,
+    identity: Identity,
     project_id: str,
     force: bool,
     delete_contents: bool,
     delete_external_artifacts: bool,
 ) -> Tuple[DeleteProjectResult, Set[str]]:
+    user = identity.user
     project = Project.get_for_writing(
-        company=company, id=project_id, _only=("id", "path", "system_tags")
+        company=company, id=project_id, _only=("id", "path", "system_tags", "user")
     )
     if not project:
         raise errors.bad_request.InvalidProjectId(id=project_id)
+
+    # Validate delete permission: only owner or admin can delete
+    validate_delete_permission(identity, resource_user_id=project.user, resource_type="project")
 
     delete_external_artifacts = delete_external_artifacts and config.get(
         "services.async_urls_delete.enabled", True

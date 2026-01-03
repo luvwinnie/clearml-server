@@ -20,6 +20,7 @@ from apiserver.apierrors import errors
 from apiserver.apimodels.base import UpdateResponse
 from apiserver.bll.project.project_bll import reports_project_name, reports_tag
 from apiserver.bll.task.utils import get_task_with_write_access
+from apiserver.bll.util import validate_delete_permission
 from apiserver.database.model.model import Model
 from apiserver.service_repo.auth import Identity
 from apiserver.services.models import conform_model_data
@@ -408,8 +409,12 @@ def delete(call: APICall, company_id, request: DeleteReportRequest):
         company_id=company_id,
         task_id=request.task,
         identity=call.identity,
-        only_fields=("project",),
+        only_fields=("project", "user"),
     )
+
+    # Validate delete permission: only owner or admin can delete
+    validate_delete_permission(call.identity, resource_user_id=task.user, resource_type="report")
+
     if (
         task.status != TaskStatus.created
         and EntityVisibility.archived.value not in task.system_tags

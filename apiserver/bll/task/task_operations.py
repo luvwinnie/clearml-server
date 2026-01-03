@@ -10,7 +10,7 @@ from apiserver.bll.task import (
 )
 from apiserver.bll.task.task_cleanup import cleanup_task, CleanupResult
 from apiserver.bll.task.utils import get_task_with_write_access
-from apiserver.bll.util import update_project_time
+from apiserver.bll.util import update_project_time, validate_delete_permission
 from apiserver.config_repo import config
 from apiserver.database.model import EntityVisibility
 from apiserver.database.model.model import Model
@@ -325,6 +325,9 @@ def delete_task(
 ) -> Tuple[int, Task, CleanupResult]:
     user_id = identity.user
     task = get_task_with_write_access(task_id, company_id=company_id, identity=identity)
+
+    # Validate delete permission: only owner or admin can delete
+    validate_delete_permission(identity, resource_user_id=task.user, resource_type="task")
 
     if (
         task.status != TaskStatus.created

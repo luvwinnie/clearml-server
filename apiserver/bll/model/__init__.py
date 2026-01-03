@@ -6,6 +6,7 @@ from mongoengine import Q
 from apiserver.apierrors import errors
 from apiserver.apimodels.models import ModelTaskPublishResponse
 from apiserver.bll.task.utils import deleted_prefix, get_last_metric_updates
+from apiserver.bll.util import validate_delete_permission
 from apiserver.database.model import EntityVisibility
 from apiserver.database.model.model import Model
 from apiserver.database.model.task.task import Task, TaskStatus
@@ -91,13 +92,18 @@ class ModelBLL:
 
     @classmethod
     def delete_model(
-        cls, model_id: str, company_id: str, user_id: str, force: bool
+        cls, model_id: str, company_id: str, identity: Identity, force: bool
     ) -> Tuple[int, Model]:
+        user_id = identity.user
         model = cls.get_company_model_by_id(
             company_id=company_id,
             model_id=model_id,
-            only_fields=("id", "task", "project", "uri"),
+            only_fields=("id", "task", "project", "uri", "user"),
         )
+
+        # Validate delete permission: only owner or admin can delete
+        validate_delete_permission(identity, resource_user_id=model.user, resource_type="model")
+
         deleted_model_id = f"{deleted_prefix}{model_id}"
 
         using_tasks = Task.objects(models__input__model=model_id).only("id")
